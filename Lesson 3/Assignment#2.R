@@ -84,8 +84,8 @@ rpart.plot(banktree)
 rpart.plot(banktree3)
 
 #Prune Tree
-prune_banktree <- prune(banktree, cp = 0.05)
-prune_banktree3 <- prune(banktree3, cp = 0.05)
+prune_banktree <- prune(banktree, cp = 0.03)
+prune_banktree3 <- prune(banktree3, cp = 0.03)
 #Plot tree after pruning.
 rpart.plot(prune_banktree)
 rpart.plot(prune_banktree3)
