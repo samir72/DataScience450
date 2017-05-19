@@ -6,7 +6,7 @@ library('cluster')
 library('fpc')
 Loaddata <- function(file)
 {
-  #  browser()
+  #browser()
   ## Read the csv file
   Dataload <- read.csv(file, header = TRUE,stringsAsFactors = FALSE)
   
@@ -27,18 +27,15 @@ head(clustersessiondata)
 
 # Set seed data.
 set.seed(23)
-#Perform K-Means with 4-8 clusters
+#Perform K-Means with 4-10 clusters
 for (j in 4:10) {
   #     browser()
   kmeanscluster <- kmeans(clustersessiondata,j)
-  cat("This kmean run is for a k value of :", j, "\n" )
+  cat("\n","This kmean run is for a k value of :", j, "\n" )
   print(kmeanscluster)
   #Compare the clusters with purchase
+  cat("\n","Compare the clusters with purchase for a K value of : ", j,"\n")
   print(table(kmeanscluster$cluster, sessiondata$Purchase))
-  # Show the cluster
-  plot(clustersessiondata[c("Home", "Products")], col=kmeanscluster$cluster)
-  points(kmeanscluster$centers[,c("Home", "Products")], col=1:3, pch=23, cex=3)
-  
   #Plot the clusters.
   # Create a cluster plot using the first 2 principal components
   clusplot(sessiondata, kmeanscluster$cluster, color=TRUE, shade=TRUE, 
