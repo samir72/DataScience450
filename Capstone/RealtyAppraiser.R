@@ -2,23 +2,21 @@
 rm(list=ls())
 # Clear Console:
 cat("\014")
+# Set repeatable random seed.
+set.seed(123)
+library(e1071)
 library(ggplot2)
-library(reshape2)
 library(data.table)
-library(tidyverse)
 library(lubridate)
-library(scales)
-library(corrplot)
-library(DT)
 library(caret)
 library(stringr)
 Loaddata <- function(file)
 {
   #browser()
   ## Read the csv file
-  Dataload <- read.csv(file, header = TRUE,stringsAsFactors = FALSE)
+  #Dataload <- read.csv(file, header = TRUE,stringsAsFactors = FALSE)
   # fread function is more efficent for larger data file and it creates a data table not a data frame in the process.
-  #Dataload <- fread(file, stringsAsFactors=TRUE)
+  Dataload <- fread(file, stringsAsFactors=TRUE)
   ## Remove cases or rows with missing values. In this case we keep the 
   ## rows which do not have nas. 
   Dataload[complete.cases(Dataload), ]
@@ -36,13 +34,20 @@ traindt <- traindt %>%
   mutate(max_floor = as.numeric(max_floor), kitch_sq=as.numeric(kitch_sq), num_room=as.numeric(num_room), build_year=as.numeric(build_year), sub_area=as.factor(sub_area))
 traindt <- traindt %>% 
   filter(build_year < 2020 | is.na(build_year))
-traindt <- traindt %>% mutate(strange_full_sq = ifelse(full_sq <= 1, full_sq+1,0), full_sq = ifelse(full_sq > 800 | full_sq <= 1, NA, full_sq))
-traindt <- traindt %>% mutate(strange_life_sq = ifelse(life_sq <= 1, life_sq+1,0), strange_life_sq= ifelse(is.na(strange_life_sq),0,strange_life_sq), life_sq = ifelse(life_sq > 400 | life_sq <= 1, NA, life_sq))
-traindt <- traindt %>% mutate(kitch_sq = as.numeric(kitch_sq),strange_kitch_sq = ifelse(kitch_sq <= 1, kitch_sq+1,0),kitch_sq = ifelse(kitch_sq > 200 | kitch_sq <= 1, NA, kitch_sq))
+#traindt <- traindt %>% mutate(strange_full_sq = ifelse(full_sq <= 1, full_sq+1,0), full_sq = ifelse(full_sq > 800 | full_sq <= 1, NA, full_sq))
+#traindt <- traindt %>% mutate(strange_life_sq = ifelse(life_sq <= 1, life_sq+1,0), strange_life_sq= ifelse(is.na(strange_life_sq),0,strange_life_sq), life_sq = ifelse(life_sq > 400 | life_sq <= 1, NA, life_sq))
+#traindt <- traindt %>% mutate(kitch_sq = as.numeric(kitch_sq),strange_kitch_sq = ifelse(kitch_sq <= 1, kitch_sq+1,0),kitch_sq = ifelse(kitch_sq > 200 | kitch_sq <= 1, NA, kitch_sq))
+#traindt <- traindt %>% mutate(build_year = as.numeric(build_year), strange_build_year = ifelse(build_year <= 1, build_year+1,0), build_year = ifelse(build_year > 2018 | build_year < 1860, NA, build_year))
+#traindt <- traindt %>% mutate(max_floor = as.numeric(max_floor), strange_max_floor = ifelse(max_floor <= 1, max_floor+1,0), max_floor = ifelse(max_floor > 60 | max_floor <=1, NA, max_floor))
+
+traindt <- traindt %>% mutate(full_sq = ifelse(full_sq > 800 | full_sq <= 1, NA, full_sq))
+traindt <- traindt %>% mutate(life_sq = ifelse(life_sq > 400 | life_sq <= 1, NA, life_sq))
+traindt <- traindt %>% mutate(kitch_sq = as.numeric(kitch_sq),kitch_sq = ifelse(kitch_sq > 200 | kitch_sq <= 1, NA, kitch_sq))
+
 traindt <- traindt %>% mutate(num_room = as.numeric(num_room))
-traindt <- traindt %>% mutate(build_year = as.numeric(build_year), strange_build_year = ifelse(build_year <= 1, build_year+1,0), build_year = ifelse(build_year > 2018 | build_year < 1860, NA, build_year))
+traindt <- traindt %>% mutate(build_year = as.numeric(build_year),build_year = ifelse(build_year > 2018 | build_year < 1860, NA, build_year))
 traindt <- traindt %>% mutate(floor = ifelse(floor > 45, NA, floor))
-traindt <- traindt %>% mutate(max_floor = as.numeric(max_floor), strange_max_floor = ifelse(max_floor <= 1, max_floor+1,0), max_floor = ifelse(max_floor > 60 | max_floor <=1, NA, max_floor))
+traindt <- traindt %>% mutate(max_floor = as.numeric(max_floor),max_floor = ifelse(max_floor > 60 | max_floor <=1, NA, max_floor))
 traindt <- traindt %>% mutate(state = as.numeric(state), state = ifelse(state > 4, NA, state))
 traindt <- traindt %>% mutate(material = as.factor(material), material = ifelse(material == 3, NA, material))
 traindt <- traindt %>% mutate(product_type = factor(product_type))
@@ -71,6 +76,15 @@ traindt <- traindt %>%
 # weekday
 traindt <- traindt %>% 
   mutate(day_of_week = wday(traindt$timestamp))
+
+#Check sale patterns across different date patterns
+ggplot(data = traindt, aes(x = as.factor(traindt$day_of_month), y = price_doc)) + geom_boxplot(fill = "#5C7457") + labs(title = "Date of the month vs Price", x = "Date", y = "Price")
+ggplot(data = traindt, aes(x = as.factor(traindt$month_of_year), y = price_doc)) + geom_boxplot(fill = "#EAC435") + labs(title = "Month vs Price", x = "Month", y = "Price")
+ggplot(data = traindt, aes(x = as.factor(traindt$year_of_date), y = price_doc)) + 
+  geom_boxplot(fill = "#345995") +
+  coord_cartesian(ylim = c(0,10000000)) + labs(title = "Year vs Price", x = "Year", y = "Price")
+
+ggplot(data = traindt, aes(x = as.factor(traindt$week_of_year), y = price_doc)) + geom_boxplot(fill = "#E40066") + labs(title = "Day of the week vs Price", x = "Day", y = "Price")
 
 ##Features.
 # number of floors to the top of house
@@ -101,34 +115,18 @@ traindt <- traindt %>%
 traindt <- traindt %>% 
   mutate(age_at_sale = interval(make_date(year=build_year),timestamp) / years(1))  
 
+#Filter homes with known age.
+#traindt <- traindt %>% filter(!is.na(age_at_sale))
+
 #Group Apartment
 # assign a common name to them
 traindt <- traindt %>% 
   mutate(apartment_name = factor(str_c(sub_area,format(metro_km_avto,digits=3))))
-# get the number of apartments in group
+# get the number of apartments in group  
 traindt <- traindt %>% 
-  group_by(apartment_name) %>% 
-  tally() %>% 
+  count(apartment_name) %>%
   right_join(traindt,by="apartment_name") 
 
-
-#missing data with ggplot
-miss_pct <- map_dbl(traindt, function(x) { round((sum(is.na(x)) / length(x)) * 100, digits = 1) })
-miss_pct <- miss_pct[miss_pct > 0]
-
-data.frame(miss=miss_pct, var=names(miss_pct), row.names=NULL) %>%
-  ggplot(aes(x=reorder(var, -miss), y=miss)) + 
-  geom_bar(stat='identity', fill='red') +
-  labs(x='', y='% missing', title='Percent missing data by feature') +
-  theme(axis.text.x=element_text(angle=90, hjust=1))
-
-#missing data.
-missing <- data.frame(sapply(traindt, function(x) sum(is.na(x))*100/length(x)))
-missing$feature <- names(traindt)
-missing$num <- c(1:nrow(missing))
-colnames(missing) <- c("missing_ratio", "feature", "num")
-missing <- missing[, c("num", "feature","missing_ratio")]
-print(missing[missing$missing_ratio != 0,], row.names = F)
 #Is there a sesonal aspect to the price.
 # Months of April and June have the highest price, with November being the lowest.
 traindt %>% 
@@ -151,49 +149,32 @@ traindt %>%
   geom_point(color='red', size=2) + 
   labs(x='Year', title='Price by year')
 
-#Total features with missing values
-nrow(missing[missing$missing_ratio != 0,])
+#missing data with ggplot
+miss_pct <- map_dbl(traindt, function(x) { round((sum(is.na(x)) / length(x)) * 100, digits = 1) })
+cat("Features with 100 % data are given below and their count is : ", length(which(miss_pct==0)))
+
+miss_pct <- miss_pct[miss_pct > 0]
+data.frame(miss=miss_pct, var=names(miss_pct), row.names=NULL) %>%
+  ggplot(aes(x=reorder(var, -miss), y=miss)) + 
+  geom_bar(stat='identity', fill='red') +
+  labs(x='', y='% missing', title='Percent missing data by feature') +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+
+#Add all the new features in test data.
 
 # zero variance variables
 insignificant <- nearZeroVar(traindt)
 print(names(traindt[ , insignificant]))
 
-### Extracting date, month, year, weekday from timestamp
-traindt$date <- as.POSIXct(strptime(traindt$timestamp, format = "%Y-%m-%d"))
-traindt$day <- as.integer(format(traindt$date, "%d")) # day
-traindt$month <- as.factor(format(traindt$date, "%m")) # month
-traindt$year <- as.integer(format(traindt$date, "%Y")) # year
-traindt$weekday <- as.factor(format(traindt$date, "%u")) # weekday
-traindt$yearmonth <- paste0(traindt$year, traindt$month)
-traindt$timestamp <- NULL
-traindt$date <- NULL
+#Remove all zero variance variables from training data
+trainwithoutvardt <- traindt
+trainwithoutvardt[,insignificant] <- NULL
 
-ggplot(data = traindt, aes(x = as.factor(day), y = price_doc)) + geom_boxplot(fill = "#5C7457") + labs(title = "Date of the month vs Price", x = "Date", y = "Price")
-ggplot(data = traindt, aes(x = as.factor(month), y = price_doc)) + geom_boxplot(fill = "#EAC435") + labs(title = "Month vs Price", x = "Month", y = "Price")
-ggplot(data = traindt, aes(x = as.factor(year), y = price_doc)) + 
-  geom_boxplot(fill = "#345995") +
-  coord_cartesian(ylim = c(0,10000000)) + labs(title = "Year vs Price", x = "Year", y = "Price")
+#Remove all zero variance variables from test data
+testwithoutvardt <- testdt
+testwithoutvardt[,insignificant] <- NULL
 
-ggplot(data = traindt, aes(x = as.factor(weekday), y = price_doc)) + geom_boxplot(fill = "#E40066") + labs(title = "Day of the week vs Price", x = "Day", y = "Price")
-
-# Check the structure of the test data frame.
-str(testdt)
-testcount <- nrow(testdt)
-# Check the structure of the train data frame.
-str(traindt)
-traincount <-nrow(traindt)
-
-# Check the header data
-head(traindt)
-#Check the summary of the data frame.
-lapply(traindt, summary)
-
-#Get unique values of Sub Area.
-unique(traindt$sub_area)
-#Data visualization
-hist(traindt$num_room)
-
-# Boxplot of price by product type
-boxplot(price_doc~product_type,data=traindt, main="Price by product type",
-        xlab="Product Type", ylab="Price Doc") 
-
+# Create a svm model
+svmmodel <- svm(price_doc ~ . - id, trainwithoutvardt)
+print(svmmodel)
+predictedsvm <- predict(svmmodel, testwithoutvardt)
