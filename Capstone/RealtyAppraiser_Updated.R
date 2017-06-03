@@ -14,6 +14,7 @@ library(dplyr)
 library(purrr)
 library(mice)
 library(Boruta)
+library(Hmisc)
 Loaddata <- function(file)
 {
   #browser()
@@ -21,8 +22,6 @@ Loaddata <- function(file)
   #Dataload <- read.csv(file, header = TRUE,stringsAsFactors = FALSE)
   # fread function is more efficent for larger data file and it creates a data table not a data frame in the process.
   Dataload <- fread(file, stringsAsFactors=FALSE)
-  #Replace all blanks with NA
-  Dataload[Dataload == ""] <- NA
   ## Remove cases or rows with missing values. In this case we keep the 
   ## rows which do not have nas. 
   Dataload[complete.cases(Dataload), ]
@@ -69,6 +68,8 @@ str(copytraindt)
 str(sbertraindt)
 
 ##Data Cleansing
+#Replace all blanks with NA
+sbertraindt[sbertraindt == ""] <- NA
 sbertraindt <- sbertraindt %>% 
   mutate(max_floor = as.numeric(max_floor), kitch_sq=as.numeric(kitch_sq), num_room=as.numeric(num_room), build_year=as.numeric(build_year)
          #, sub_area=as.factor(sub_area)
@@ -93,7 +94,7 @@ sbertraindt <- sbertraindt %>% mutate(state = as.numeric(state), state = ifelse(
 #sbertraindt <- sbertraindt %>% mutate(material = as.factor(material), material = ifelse(material == 3, NA, material))
 sbertraindt <- sbertraindt %>% mutate(material = ifelse(material == 3, NA, material))
 #sbertraindt <- sbertraindt %>% mutate(product_type = factor(product_type))
-#sbertraindt <- sbertraindt %>% mutate(sub_area = factor(sub_area))
+sbertraindt <- sbertraindt %>% mutate(sub_area = factor(sub_area))
 sbertraindt <- sbertraindt %>% filter(kitch_sq < full_sq | is.na(kitch_sq))
 sbertraindt <- sbertraindt %>% filter(kitch_sq < life_sq | is.na(kitch_sq))
 sbertraindt <- sbertraindt %>% mutate(num_room = ifelse(num_room==0,NA,num_room))
@@ -112,8 +113,7 @@ sbertraindt <- sbertraindt %>% mutate(water_1line = ifelse(water_1line == "yes",
 sbertraindt <- sbertraindt %>% mutate(railroad_1line = ifelse(railroad_1line == "yes", 1, 0))
 sbertraindt <- sbertraindt %>% mutate(ecology = ifelse(ecology == "excellent", 1, ifelse(ecology == "good", 2, ifelse(ecology == "satisfactory", 3, ifelse(ecology == "no data", 4, 5)))))
 str(sbertraindt)
-#Write dataframe to a csv file.
-#fwrite(sbertraindt, file = "sbertraindt.csv")
+
 ## Get Year, Month, Week and day.
 # Year of the date
 sbertraindt <- sbertraindt %>% 
@@ -190,7 +190,7 @@ sbertraindt <- sbertraindt %>%
 sbertraindt %>% 
   mutate(month=month(timestamp)) %>%
   group_by(month) %>% 
-  summarize(med_price=median(price_doc)) %>%
+  summarise(med_price=median(price_doc)) %>%
   ggplot(aes(x=as.integer(month), y=med_price)) +
   geom_line(color='red', stat='identity') + 
   geom_point(color='red', size=2) + 
@@ -201,24 +201,12 @@ sbertraindt %>%
 sbertraindt %>% 
   mutate(year=year(timestamp)) %>%
   group_by(year) %>% 
-  summarize(med_price=median(price_doc)) %>%
+  summarise(med_price=median(price_doc)) %>%
   ggplot(aes(x=year, y=med_price)) +
   geom_line(color='red', stat='identity') + 
   geom_point(color='red', size=2) + 
   labs(x='Year', title='Price by year')
 
-#missing data with ggplot
-miss_pct <- map_dbl(sbertraindt, function(x) { round((sum(is.na(x)) / length(x)) * 100, digits = 1) })
-cat("Features with 100 % data are given below and their count is : ", length(which(miss_pct==0)))
-
-miss_pct <- miss_pct[miss_pct > 0]
-data.frame(miss=miss_pct, var=names(miss_pct), row.names=NULL) %>%
-  ggplot(aes(x=reorder(var, -miss), y=miss)) + 
-  geom_bar(stat='identity', fill='red') +
-  labs(x='', y='% missing', title='Percent missing data by feature') +
-  theme(axis.text.x=element_text(angle=90, hjust=1))
-
-#Add all the new features in test data.
 
 # zero variance variables
 insignificant <- nearZeroVar(sbertraindt)
@@ -228,26 +216,66 @@ print(names(sbertraindt[ , insignificant]))
 sbertrainwithoutvardt <- as.data.frame(sbertraindt)
 sbertrainwithoutvardt[,insignificant] <- NULL
 
+#missing data with ggplot
+miss_pct <- map_dbl(sbertrainwithoutvardt, function(x) { round((sum(is.na(x)) / length(x)) * 100, digits = 1) })
+cat("Features with 100 % data are given below and their count is : ", length(which(miss_pct==0)))
+
+miss_pct <- miss_pct[miss_pct > 0]
+data.frame(miss=miss_pct, var=names(miss_pct), row.names=NULL) %>%
+  ggplot(aes(x=reorder(var, -miss), y=miss)) + 
+  geom_bar(stat='identity', fill='red') +
+  labs(x='', y='% missing', title='Percent missing data by feature') +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+
+#Remove features with more than 5 % missing data
+miss_pctgt5 <- miss_pct[miss_pct > 5]
+miss_pctlt5 <- miss_pct[miss_pct < 5]
+
+sbertrainwithoutvardt[,names(miss_pctgt5)] <- NULL
+
 #Remove all factor variables from test data
 #x <-  sapply(testwithoutvardt, class) == "factor"
 #testwithoutvardt[,x] <- NULL
 #testwithoutfactordt <- testwithoutvardt[, x]
 
 #Remove all factor variables from train data
-#y <- sapply(trainwithoutvardt, class) == "factor"
-#trainwithoutvardt[,y] <- NULL
+#y <- sapply(sbertrainwithoutvardt, class) == "factor"
+#sbertrainwithoutvardt[,y] <- NULL
 #trainwithoutfactordt <- trainwithoutvardt[, y]
 
 
 #Convert back to data tables.
 #trainwithoutvardt <- as.data.table(trainwithoutvardt)
 #testwithoutvardt <- as.data.table(testwithoutvardt)
+#Write dataframe to a csv file.
+#fwrite(sbertrainwithoutvardt, file = "sbertraindt.csv")
+#Fix missing values using mice
+#md.pattern(sbertrainwithoutvardt)
+#imputed_Data <- mice(sbertrainwithoutvardt, m=5, maxit = 5, method = 'pmm')
+#summary(imputed_Data)
 
-#Fix missing values.
-md.pattern(sbertrainwithoutvardt)
-imputed_Data <- mice(sbertrainwithoutvardt, m=5, maxit = 50, method = 'pmm', seed = 500)
-summary(imputed_Data)
+#Using Hmisc package
+#impute_Hmisc <- aregImpute(~ full_sq + floor + metro_min_walk + metro_km_walk + railroad_station_walk_km + railroad_station_walk_min + ID_railroad_station_walk + cafe_sum_3000_min_price_avg + cafe_sum_3000_max_price_avg + cafe_avg_price_3000 + prom_part_5000 + cafe_sum_5000_min_price_avg + cafe_sum_5000_max_price_avg + cafe_avg_price_5000, data = sbertrainwithoutvardt, n.impute = 5)
 
+
+# impute with the median
+sbertrainwithoutvardt$full_sq <- with(sbertrainwithoutvardt, impute(full_sq, median))
+sbertrainwithoutvardt$floor <- with(sbertrainwithoutvardt, impute(floor, median))
+sbertrainwithoutvardt$metro_min_walk <- with(sbertrainwithoutvardt, impute(metro_min_walk, median))
+sbertrainwithoutvardt$metro_km_walk <- with(sbertrainwithoutvardt, impute(metro_km_walk, median))
+sbertrainwithoutvardt$railroad_station_walk_km <- with(sbertrainwithoutvardt, impute(railroad_station_walk_km, median))
+sbertrainwithoutvardt$railroad_station_walk_min <- with(sbertrainwithoutvardt, impute(railroad_station_walk_min, median))
+sbertrainwithoutvardt$ID_railroad_station_walk <- with(sbertrainwithoutvardt, impute(ID_railroad_station_walk, median))
+sbertrainwithoutvardt$cafe_sum_3000_min_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_3000_min_price_avg, median))
+sbertrainwithoutvardt$cafe_avg_price_3000 <- with(sbertrainwithoutvardt, impute(cafe_avg_price_3000, median))
+sbertrainwithoutvardt$prom_part_5000 <- with(sbertrainwithoutvardt, impute(prom_part_5000, median))
+sbertrainwithoutvardt$cafe_sum_5000_min_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_5000_min_price_avg, median))
+sbertrainwithoutvardt$cafe_sum_5000_max_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_5000_max_price_avg, median))
+sbertrainwithoutvardt$cafe_avg_price_5000 <- with(sbertrainwithoutvardt, impute(cafe_avg_price_5000, median))
+sbertrainwithoutvardt$cafe_sum_3000_max_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_3000_max_price_avg, median))
+
+#User Boruta to remove unnecessary features.
+boruta.traindt <- Boruta(price_doc ~ . - id, data = sbertrainwithoutvardt, doTrace = 2)
 
 #Split this dataset in test and train datasets.
 sbertraindtsvm = PartitionExact(sbertrainwithoutvardt)
@@ -257,8 +285,6 @@ traindt <-sbertraindtsvm$trainingData
 cat("Count of Train Dataset : ", nrow(traindt),"\n" )
 cat("Count of Test Dataset : ", nrow(testdt),"\n" )
 
-#User Boruta to remove unnecessary features.
-boruta.traindt <- Boruta(price_doc ~ . - id, data = traindt, doTrace = 2)
 
 # Create a svm model
 svmmodel <- svm(price_doc ~ . - id, traindt)

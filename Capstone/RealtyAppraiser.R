@@ -281,7 +281,7 @@ sbertrainwithoutvardt[,insignificant] <- NULL
 #testwithoutvardt <- as.data.table(testwithoutvardt)
 
 #Fix missing values.
-md.pattern(sbertrainwithoutvardt)
+#md.pattern(sbertrainwithoutvardt)
 imputed_Data <- mice(sbertrainwithoutvardt, m=5, maxit = 50, method = 'pmm', seed = 500)
 summary(imputed_Data)
 
