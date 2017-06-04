@@ -60,12 +60,13 @@ Accuracy <- function(Table.X)
 
 
 # Load the file.
-#testdt <- Loaddata('test.csv')
+sbermacrodt <- Loaddata('macro.csv')
+sbertestdt <- Loaddata('test.csv')
 sbertraindt <- Loaddata('train.csv')
 copysbertraindt <- sbertraindt
-is.data.table(copytraindt)
-str(copytraindt)
-str(sbertraindt)
+
+#Merge Macro data with training data.
+merge(x = sbertraindt, y = sbermacrodt, by = "timestamp", all.x = TRUE)
 
 ##Data Cleansing
 #Replace all blanks with NA
