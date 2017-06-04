@@ -275,10 +275,29 @@ sbertrainwithoutvardt$cafe_avg_price_5000 <- with(sbertrainwithoutvardt, impute(
 sbertrainwithoutvardt$cafe_sum_3000_max_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_3000_max_price_avg, median))
 
 #User Boruta to remove unnecessary features.
-boruta.traindt <- Boruta(price_doc ~ . - id, data = sbertrainwithoutvardt, doTrace = 2)
+boruta.traindt <- Boruta(price_doc ~ . - id, data = sbertrainwithoutvardt, doTrace = 0)
+print(boruta.traindt)
+plot(boruta.traindt, xlab = "", xaxt = "n")
+lz<-lapply(1:ncol(boruta.traindt$ImpHistory),function(i) boruta.traindt$ImpHistory[is.finite(boruta.traindt$ImpHistory[,i]),i])
+names(lz) <- colnames(boruta.traindt$ImpHistory)
+Labels <- sort(sapply(lz,median))
+axis(side = 1,las=2,labels = names(Labels),at = 1:ncol(boruta.traindt$ImpHistory), cex.axis = 0.7)
+#Decide on Boruta tentative features.
+final.boruta <- TentativeRoughFix(boruta.traindt)
+print(final.boruta)
+#Get the final list of confirmed features.
+getSelectedAttributes(final.boruta, withTentative = F)
+print(getSelectedAttributes)
+#Create a dataframe based on the final result from Boruta.
+boruta.df <- attStats(final.boruta)
+print(boruta.df)
+#Remove rejected features.
+finalsbertraindt <- sbertrainwithoutvardt
+Rejects <- boruta.df[boruta.df$decision == 'Rejected',]
+finalsbertraindt[,row.names(Rejects)] <- NULL
 
 #Split this dataset in test and train datasets.
-sbertraindtsvm = PartitionExact(sbertrainwithoutvardt)
+sbertraindtsvm = PartitionExact(finalsbertraindt)
 testdt <- sbertraindtsvm$testingData
 traindt <-sbertraindtsvm$trainingData
 
