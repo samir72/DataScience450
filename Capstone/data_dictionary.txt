@@ -55,6 +55,7 @@ cpi: Inflation - Consumer Price Index Growth
 ppi: Inflation - Producer Price index Growth
 gdp_deflator: Inflation - GDP deflator
 balance_trade: Trade surplus
+
 balance_trade_growth: Trade balance (as a percentage of previous year)
 usdrub: Ruble/USD exchange rate
 eurrub: Ruble/EUR exchange rate

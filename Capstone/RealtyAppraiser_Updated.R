@@ -4,22 +4,24 @@ rm(list=ls())
 cat("\014")
 # Set repeatable random seed.
 set.seed(123)
-library(e1071)
+#install.packages("xgboost")
+library("xgboost")
+#install.packages("Matrix")
+library(Matrix)
 library(ggplot2)
 library(data.table)
-library(lubridate)
+#install.packages("caret")
 library(caret)
-library(stringr)
+library(plyr)
 library(dplyr)
+#install.packages("purrr")
 library(purrr)
-library(mice)
+#install.packages("Boruta")
 library(Boruta)
+#install.packages("Hmisc")
 library(Hmisc)
 Loaddata <- function(file)
 {
-  #browser()
-  ## Read the csv file
-  #Dataload <- read.csv(file, header = TRUE,stringsAsFactors = FALSE)
   # fread function is more efficent for larger data file and it creates a data table not a data frame in the process.
   Dataload <- fread(file, stringsAsFactors=FALSE)
   ## Remove cases or rows with missing values. In this case we keep the 
@@ -28,45 +30,38 @@ Loaddata <- function(file)
   return(Dataload)
 }
 
-# Partition the data into test and training data sets.
-PartitionExact = function(dataSet, fractionOfTest = 0.3)
-{
-  #  browser()
-  random <-runif(nrow(dataSet))
-  quant <- quantile(random,fractionOfTest)
-  testFlag <- random <= quant
-  testingData <- dataSet[testFlag, ]
-  trainingData <- dataSet[!testFlag, ]
-  dataSetSplit <- list(trainingData=trainingData, testingData=testingData)
-}
-
-#Calculate Specificity (TPR)
-Specificity <- function(Table.X)
-{
-  Specificity.X <- (Table.X[2,2])/(Table.X[1,2]+Table.X[2,2])
-  return(Specificity.X)
-}
-#calculate FPR from Confusion MAtrix
-FPR <- function(Table.X)
-{
-  FPR.X <- (Table.X[1,2])/(Table.X[1,2]+Table.X[2,2])
-  return(FPR.X)
-}
-Accuracy <- function(Table.X)
-{
-  Accuracy.X <- (Table.X[1,1]+Table.X[2,2])/(Table.X[1,1]+Table.X[1,2]+Table.X[2,1]+Table.X[2,2])
-  return(Accuracy.X)
-}
-
-
 # Load the file.
 sbermacrodt <- Loaddata('macro.csv')
 sbertestdt <- Loaddata('test.csv')
 sbertraindt <- Loaddata('train.csv')
+sbersubsampdt <- Loaddata('sample_submission.csv')
 copysbertraindt <- sbertraindt
+copysbertestdt <- sbertestdt
 
-#Merge Macro data with training data.
-merge(x = sbertraindt, y = sbermacrodt, by = "timestamp", all.x = TRUE)
+#Add price_doc for rbind
+sbertestdt$price_doc <- NA
+#Combine train and test data.
+sbertraintestdt <- rbind(sbertraindt, sbertestdt)
+
+#Merge macro data to training/test data.
+sbertraintestdt <- merge(x = sbertraintestdt, y = sbermacrodt, by = "timestamp", all.x = TRUE)
+
+#Transform all factor features to numeric.
+sbertraintestdt_ft <- colnames(sbertraintestdt)
+
+for (ft in sbertraintestdt_ft) 
+{
+  if ((class(sbertraintestdt[[ft]])=="factor") || (class(sbertraintestdt[[ft]])=="character"))
+  {
+    levels <- unique(sbertraintestdt[[ft]])
+    sbertraintestdt[[ft]] <- as.numeric(factor(sbertraintestdt[[ft]], levels=levels))
+  }
+}
+#Carve out train dataset.
+sbertraindt = sbertraintestdt[1:nrow(sbertraindt),]
+#Carve out test dataset.
+sbertestdt = sbertraintestdt[(nrow(sbertraindt)+1):(nrow(sbertraindt)+nrow(sbertestdt)),]
+
 
 ##Data Cleansing
 #Replace all blanks with NA
@@ -74,15 +69,9 @@ sbertraindt[sbertraindt == ""] <- NA
 sbertraindt <- sbertraindt %>% 
   mutate(max_floor = as.numeric(max_floor), kitch_sq=as.numeric(kitch_sq), num_room=as.numeric(num_room), build_year=as.numeric(build_year)
          #, sub_area=as.factor(sub_area)
-         )
+  )
 sbertraindt <- sbertraindt %>% 
   filter(build_year < 2020 | is.na(build_year))
-#sbertraindt <- sbertraindt %>% mutate(strange_full_sq = ifelse(full_sq <= 1, full_sq+1,0), full_sq = ifelse(full_sq > 800 | full_sq <= 1, NA, full_sq))
-#sbertraindt <- sbertraindt %>% mutate(strange_life_sq = ifelse(life_sq <= 1, life_sq+1,0), strange_life_sq= ifelse(is.na(strange_life_sq),0,strange_life_sq), life_sq = ifelse(life_sq > 400 | life_sq <= 1, NA, life_sq))
-#sbertraindt <- sbertraindt %>% mutate(kitch_sq = as.numeric(kitch_sq),strange_kitch_sq = ifelse(kitch_sq <= 1, kitch_sq+1,0),kitch_sq = ifelse(kitch_sq > 200 | kitch_sq <= 1, NA, kitch_sq))
-#sbertraindt <- sbertraindt %>% mutate(build_year = as.numeric(build_year), strange_build_year = ifelse(build_year <= 1, build_year+1,0), build_year = ifelse(build_year > 2018 | build_year < 1860, NA, build_year))
-#sbertraindt <- sbertraindt %>% mutate(max_floor = as.numeric(max_floor), strange_max_floor = ifelse(max_floor <= 1, max_floor+1,0), max_floor = ifelse(max_floor > 60 | max_floor <=1, NA, max_floor))
-
 sbertraindt <- sbertraindt %>% mutate(full_sq = ifelse(full_sq > 800 | full_sq <= 1, NA, full_sq))
 sbertraindt <- sbertraindt %>% mutate(life_sq = ifelse(life_sq > 400 | life_sq <= 1, NA, life_sq))
 sbertraindt <- sbertraindt %>% mutate(kitch_sq = as.numeric(kitch_sq),kitch_sq = ifelse(kitch_sq > 200 | kitch_sq <= 1, NA, kitch_sq))
@@ -92,10 +81,7 @@ sbertraindt <- sbertraindt %>% mutate(build_year = as.numeric(build_year),build_
 sbertraindt <- sbertraindt %>% mutate(floor = ifelse(floor > 45, NA, floor))
 sbertraindt <- sbertraindt %>% mutate(max_floor = as.numeric(max_floor),max_floor = ifelse(max_floor > 60 | max_floor <=1, NA, max_floor))
 sbertraindt <- sbertraindt %>% mutate(state = as.numeric(state), state = ifelse(state > 4, NA, state))
-#sbertraindt <- sbertraindt %>% mutate(material = as.factor(material), material = ifelse(material == 3, NA, material))
 sbertraindt <- sbertraindt %>% mutate(material = ifelse(material == 3, NA, material))
-#sbertraindt <- sbertraindt %>% mutate(product_type = factor(product_type))
-sbertraindt <- sbertraindt %>% mutate(sub_area = factor(sub_area))
 sbertraindt <- sbertraindt %>% filter(kitch_sq < full_sq | is.na(kitch_sq))
 sbertraindt <- sbertraindt %>% filter(kitch_sq < life_sq | is.na(kitch_sq))
 sbertraindt <- sbertraindt %>% mutate(num_room = ifelse(num_room==0,NA,num_room))
@@ -115,112 +101,22 @@ sbertraindt <- sbertraindt %>% mutate(railroad_1line = ifelse(railroad_1line == 
 sbertraindt <- sbertraindt %>% mutate(ecology = ifelse(ecology == "excellent", 1, ifelse(ecology == "good", 2, ifelse(ecology == "satisfactory", 3, ifelse(ecology == "no data", 4, 5)))))
 str(sbertraindt)
 
-## Get Year, Month, Week and day.
-# Year of the date
-sbertraindt <- sbertraindt %>% 
-  mutate(year_of_date = year(sbertraindt$timestamp))
-
-# month of year
-sbertraindt <- sbertraindt %>% 
-  mutate(month_of_year = month(sbertraindt$timestamp))
-
-# week of year
-sbertraindt <- sbertraindt %>% 
-  mutate(week_of_year = week(sbertraindt$timestamp))
-
-# day of month
-sbertraindt <- sbertraindt %>% 
-  mutate(day_of_month = mday(sbertraindt$timestamp))
-
-# weekday
-sbertraindt <- sbertraindt %>% 
-  mutate(day_of_week = wday(sbertraindt$timestamp))
-
-#Check sale patterns across different date patterns
-ggplot(data = sbertraindt, aes(x = as.factor(sbertraindt$day_of_month), y = price_doc)) + geom_boxplot(fill = "#5C7457") + labs(title = "Date of the month vs Price", x = "Date", y = "Price")
-ggplot(data = sbertraindt, aes(x = as.factor(sbertraindt$month_of_year), y = price_doc)) + geom_boxplot(fill = "#EAC435") + labs(title = "Month vs Price", x = "Month", y = "Price")
-ggplot(data = sbertraindt, aes(x = as.factor(sbertraindt$year_of_date), y = price_doc)) + 
-  geom_boxplot(fill = "#345995") +
-  coord_cartesian(ylim = c(0,10000000)) + labs(title = "Year vs Price", x = "Year", y = "Price")
-
-ggplot(data = sbertraindt, aes(x = as.factor(sbertraindt$week_of_year), y = price_doc)) + geom_boxplot(fill = "#E40066") + labs(title = "Day of the week vs Price", x = "Day", y = "Price")
-
-##Features.
-# number of floors to the top of house
-sbertraindt <- sbertraindt %>% 
-  mutate(floor_from_top = max_floor - floor)
-
-# relative position of floor in house
-sbertraindt <- sbertraindt %>% 
-  mutate(floor_by_maxfloor = floor/max_floor)
-
-# average room size
-sbertraindt <- sbertraindt %>% 
-  mutate(roomsize = (life_sq-kitch_sq)/num_room) 
-
-# relative proportion of living area
-sbertraindt <- sbertraindt %>% 
-  mutate(life_proportion = life_sq/full_sq)
-
-# relative proportion of kitchen area
-sbertraindt <- sbertraindt %>% 
-  mutate(kitchen_proportion = kitch_sq/full_sq)
-
-# extra area
-sbertraindt <- sbertraindt %>% 
-  mutate(extra_area = full_sq - life_sq)
-
-# age of house at time of sale
-sbertraindt <- sbertraindt %>% 
-  mutate(age_at_sale = interval(make_date(year=build_year),timestamp) / years(1))  
-
-#Filter homes with known age.
-#sbertraindt <- sbertraindt %>% filter(!is.na(age_at_sale))
-
-#Group Apartment
-# assign a common name to them
-sbertraindt <- sbertraindt %>% 
-  mutate(apartment_name = factor(str_c(sub_area,format(metro_km_avto,digits=3))))
-# get the number of apartments in group  
-sbertraindt <- sbertraindt %>% 
-  count(apartment_name) %>%
-  right_join(sbertraindt,by="apartment_name") 
-
-#Is there a sesonal aspect to the price.
-# Months of April and June have the highest price, with November being the lowest.
-sbertraindt %>% 
-  mutate(month=month(timestamp)) %>%
-  group_by(month) %>% 
-  summarise(med_price=median(price_doc)) %>%
-  ggplot(aes(x=as.integer(month), y=med_price)) +
-  geom_line(color='red', stat='identity') + 
-  geom_point(color='red', size=2) + 
-  scale_x_continuous(breaks=seq(1,12,1)) + 
-  labs(x='Month', title='Price by month of year')
-#Is there an yearly aspect to the price.
-#Median home prices are growing steadily over the years, with a steep jump 2014.
-sbertraindt %>% 
-  mutate(year=year(timestamp)) %>%
-  group_by(year) %>% 
-  summarise(med_price=median(price_doc)) %>%
-  ggplot(aes(x=year, y=med_price)) +
-  geom_line(color='red', stat='identity') + 
-  geom_point(color='red', size=2) + 
-  labs(x='Year', title='Price by year')
-
 
 # zero variance variables
 insignificant <- nearZeroVar(sbertraindt)
-print(names(sbertraindt[ , insignificant]))
 
 #Remove all zero variance variables from training data after converting to data frame
 sbertrainwithoutvardt <- as.data.frame(sbertraindt)
+sbertestwithoutvardt <- as.data.frame(sbertestdt)
+print(names(sbertrainwithoutvardt[ , insignificant]))
 sbertrainwithoutvardt[,insignificant] <- NULL
+#Remove all zero variance variable from test data.
+sbertestwithoutvardt[,insignificant] <- NULL
+
+miss_pct <- map_dbl(sbertrainwithoutvardt, function(x) { round((sum(is.na(x)) / length(x)) * 100, digits = 1) })
+cat("Count of Features with 100 % data is : ", length(which(miss_pct==0)))
 
 #missing data with ggplot
-miss_pct <- map_dbl(sbertrainwithoutvardt, function(x) { round((sum(is.na(x)) / length(x)) * 100, digits = 1) })
-cat("Features with 100 % data are given below and their count is : ", length(which(miss_pct==0)))
-
 miss_pct <- miss_pct[miss_pct > 0]
 data.frame(miss=miss_pct, var=names(miss_pct), row.names=NULL) %>%
   ggplot(aes(x=reorder(var, -miss), y=miss)) + 
@@ -229,36 +125,17 @@ data.frame(miss=miss_pct, var=names(miss_pct), row.names=NULL) %>%
   theme(axis.text.x=element_text(angle=90, hjust=1))
 
 #Remove features with more than 5 % missing data
-miss_pctgt5 <- miss_pct[miss_pct > 5]
+miss_pctgt5 <- miss_pct[miss_pct >= 5]
+#Get features with less than 5 % data
 miss_pctlt5 <- miss_pct[miss_pct < 5]
-
+#remove <- miss_pctgt5["price_doc"]# Remove price_doc as its required in feature selection.
+#miss_pctgt5 <- miss_pctgt5 [! miss_pctgt5 %in% remove]
+#miss_pctgt5 <- miss_pctgt5[-38]
 sbertrainwithoutvardt[,names(miss_pctgt5)] <- NULL
-
-#Remove all factor variables from test data
-#x <-  sapply(testwithoutvardt, class) == "factor"
-#testwithoutvardt[,x] <- NULL
-#testwithoutfactordt <- testwithoutvardt[, x]
-
-#Remove all factor variables from train data
-#y <- sapply(sbertrainwithoutvardt, class) == "factor"
-#sbertrainwithoutvardt[,y] <- NULL
-#trainwithoutfactordt <- trainwithoutvardt[, y]
-
-
-#Convert back to data tables.
-#trainwithoutvardt <- as.data.table(trainwithoutvardt)
-#testwithoutvardt <- as.data.table(testwithoutvardt)
-#Write dataframe to a csv file.
-#fwrite(sbertrainwithoutvardt, file = "sbertraindt.csv")
-#Fix missing values using mice
-#md.pattern(sbertrainwithoutvardt)
-#imputed_Data <- mice(sbertrainwithoutvardt, m=5, maxit = 5, method = 'pmm')
-#summary(imputed_Data)
+#Remove from test data.
+sbertestwithoutvardt[,names(miss_pctgt5)] <- NULL
 
 #Using Hmisc package
-#impute_Hmisc <- aregImpute(~ full_sq + floor + metro_min_walk + metro_km_walk + railroad_station_walk_km + railroad_station_walk_min + ID_railroad_station_walk + cafe_sum_3000_min_price_avg + cafe_sum_3000_max_price_avg + cafe_avg_price_3000 + prom_part_5000 + cafe_sum_5000_min_price_avg + cafe_sum_5000_max_price_avg + cafe_avg_price_5000, data = sbertrainwithoutvardt, n.impute = 5)
-
-
 # impute with the median
 sbertrainwithoutvardt$full_sq <- with(sbertrainwithoutvardt, impute(full_sq, median))
 sbertrainwithoutvardt$floor <- with(sbertrainwithoutvardt, impute(floor, median))
@@ -269,14 +146,14 @@ sbertrainwithoutvardt$railroad_station_walk_min <- with(sbertrainwithoutvardt, i
 sbertrainwithoutvardt$ID_railroad_station_walk <- with(sbertrainwithoutvardt, impute(ID_railroad_station_walk, median))
 sbertrainwithoutvardt$cafe_sum_3000_min_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_3000_min_price_avg, median))
 sbertrainwithoutvardt$cafe_avg_price_3000 <- with(sbertrainwithoutvardt, impute(cafe_avg_price_3000, median))
+sbertrainwithoutvardt$cafe_sum_3000_max_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_3000_max_price_avg, median))
 sbertrainwithoutvardt$prom_part_5000 <- with(sbertrainwithoutvardt, impute(prom_part_5000, median))
 sbertrainwithoutvardt$cafe_sum_5000_min_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_5000_min_price_avg, median))
 sbertrainwithoutvardt$cafe_sum_5000_max_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_5000_max_price_avg, median))
 sbertrainwithoutvardt$cafe_avg_price_5000 <- with(sbertrainwithoutvardt, impute(cafe_avg_price_5000, median))
-sbertrainwithoutvardt$cafe_sum_3000_max_price_avg <- with(sbertrainwithoutvardt, impute(cafe_sum_3000_max_price_avg, median))
 
 #User Boruta to remove unnecessary features.
-boruta.traindt <- Boruta(price_doc ~ . - id, data = sbertrainwithoutvardt, doTrace = 0)
+boruta.traindt <- Boruta(price_doc ~ ., data = sbertrainwithoutvardt, doTrace = 0)
 print(boruta.traindt)
 plot(boruta.traindt, xlab = "", xaxt = "n")
 lz<-lapply(1:ncol(boruta.traindt$ImpHistory),function(i) boruta.traindt$ImpHistory[is.finite(boruta.traindt$ImpHistory[,i]),i])
@@ -287,44 +164,74 @@ axis(side = 1,las=2,labels = names(Labels),at = 1:ncol(boruta.traindt$ImpHistory
 final.boruta <- TentativeRoughFix(boruta.traindt)
 print(final.boruta)
 #Get the final list of confirmed features.
-getSelectedAttributes(final.boruta, withTentative = F)
-print(getSelectedAttributes)
+ConfirmedAttrributes <- getSelectedAttributes(final.boruta, withTentative = F)
+print(ConfirmedAttrributes)
 #Create a dataframe based on the final result from Boruta.
 boruta.df <- attStats(final.boruta)
 print(boruta.df)
-#Remove rejected features.
+
 finalsbertraindt <- sbertrainwithoutvardt
+finalsbertestdt <- sbertestwithoutvardt
 Rejects <- boruta.df[boruta.df$decision == 'Rejected',]
+#Remove rejected features from train data.
 finalsbertraindt[,row.names(Rejects)] <- NULL
-
-#Split this dataset in test and train datasets.
-sbertraindtsvm = PartitionExact(finalsbertraindt)
-testdt <- sbertraindtsvm$testingData
-traindt <-sbertraindtsvm$trainingData
-
-cat("Count of Train Dataset : ", nrow(traindt),"\n" )
-cat("Count of Test Dataset : ", nrow(testdt),"\n" )
+#Remove rejected features from test data
+finalsbertestdt[,row.names(Rejects)] <- NULL
 
 
-# Create a svm model
-svmmodel <- svm(price_doc ~ . - id, traindt)
-#lmmodel <- lm(price_doc ~ . - id, traindt)
-summary(svmmodel)
-#summary(lmmodel)
+#Carve out price_doc from training data/
+train_price <- finalsbertraindt$price_doc
+#Train data : Remove id and timestamp to avoid overfitting.
+sbertraindt <- subset(finalsbertraindt, select = -c(id,timestamp,price_doc))
+#Test data : Remove id and timestamp to avoid overfitting.
+test_id = finalsbertestdt$id
+sbertestdt <- subset(finalsbertestdt, select = -c(id,timestamp,price_doc))
 
-# Run PCA to pick up important features
-predictedsvm <- predict(svmmodel, testdt)
-#predictedlm <- predict(lmmodel, testdt)
+#Get the differences in columns between two df.
+difference <- setdiff(names(sbertraindt),names(sbertestdt))
 
-#Check Accuracy
-tablesvm <- table(predictedsvm,testdt$price_doc)
-#tablesvm <- table(predictedlm,testdt$price_doc)
-#Accuracy
-Accuracysvm <- Accuracy(tablesvm)
-cat("Model Accuracy On Test Dataset : ", Accuracysvm,"\n" )
-# Calculate TPR of SVM
-TPRsvm <- Specificity(tablesvm)
-cat("Model TPR On Test Dataset : ", TPRsvm,"\n" )
-# Calculate FPR of SVM
-FPRsvm <- FPR(tablesvm)
-cat("Model FPR On Test Dataset : ", FPRsvm,"\n" )
+cat("Count of Train Dataset : ", nrow(sbertraindt),"\n" )
+cat("Count of Test Dataset : ", nrow(sbertestdt),"\n" )
+
+#Use xGBoost model for training.
+
+dtrain = xgb.DMatrix(as.matrix(sbertraindt), label=log(train_price+1))
+dtest = xgb.DMatrix(as.matrix(sbertestdt))
+
+watchlist <- list(train=dtrain, test=dtest)
+parameters = list(
+  seed = 0,
+  colsample_bytree = 1,
+  subsample = 1,
+  eta = 0.1,
+  objective = 'reg:linear',
+  max_depth = 6,
+  num_parallel_tree = 1,
+  min_child_weight = 1,
+  base_score = 15.69,
+  watchlist=watchlist
+)
+
+cv_result = xgb.cv(parameters,
+                   dtrain,
+                   nrounds=2000,
+                   nfold=10,
+                   early_stopping_rounds=20,
+                   print_every_n = 10,
+                   verbose= 2,
+                   maximize=F)
+
+cv_nrounds = cv_result$best_iteration
+
+bstmodel = xgb.train(parameters, dtrain, cv_nrounds)
+
+bstprediction <- predict(bstmodel,dtest)
+sbersubsampdt$price_doc <- exp(bstprediction)-1
+
+#Show important features used in this model.
+importance_matrix <- xgb.importance(model = bstmodel)
+print(importance_matrix)
+xgb.plot.importance(importance_matrix = importance_matrix)
+
+# Write predictions to the csv file.
+write.csv(data.table(id=test_id, price_doc=sbersubsampdt$price_doc), "Amir_XGBPrediction.csv", row.names = F)
